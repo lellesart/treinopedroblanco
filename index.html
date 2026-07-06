@@ -42,8 +42,40 @@
             50% { opacity: 0.85; transform: scale(0.98); }
         }
     </style>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="p-0 sm:p-4 md:p-8">
+
+    
+    <!-- Modal de Login Supabase -->
+    <div id="login-modal" class="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 flex flex-col">
+            <div class="text-center mb-6">
+                <h1 class="text-[#3B52F6] text-3xl font-extrabold tracking-wider leading-none brand-font">LELLES</h1>
+                <span class="text-gray-700 text-lg font-light tracking-[0.25em] block -mt-1 uppercase brand-font">Team</span>
+                <div class="w-24 h-[3px] bg-[#22C55E] mx-auto mt-2 rounded-full"></div>
+                <p class="text-xs text-gray-500 mt-3">Entre com seu e-mail para acessar seu logbook</p>
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">E-mail</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com" required class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#3B52F6] focus:ring-1 focus:ring-[#3B52F6] transition-all">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Senha</label>
+                    <input type="password" id="login-password" placeholder="Mínimo 6 caracteres" required minlength="6" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#3B52F6] focus:ring-1 focus:ring-[#3B52F6] transition-all">
+                </div>
+                <div id="login-error" class="hidden text-xs text-rose-600 font-bold bg-rose-50 p-2.5 rounded-xl text-center"></div>
+                <div id="login-info" class="hidden text-xs text-emerald-700 font-bold bg-emerald-50 p-2.5 rounded-xl text-center"></div>
+                
+                <button type="submit" id="login-btn" class="w-full bg-[#3B52F6] hover:bg-[#2563EB] text-white font-bold py-3.5 rounded-xl shadow-md active:scale-95 transition-all">
+                    Entrar
+                </button>
+            </form>
+        </div>
+    </div>
 
     <!-- Container Principal com mockup Mobile Premium -->
     <div class="w-full max-w-md bg-gradient-to-b from-[#E3EDF7] to-[#F1EEF9] min-h-screen sm:min-h-[850px] sm:rounded-[40px] shadow-2xl relative flex flex-col overflow-hidden border border-white/20">
@@ -83,9 +115,23 @@
                     <div class="w-32 h-[3px] bg-[#22C55E] mx-auto mt-1 rounded-full"></div>
                 </div>
 
-                <div class="w-[52px]" aria-hidden="true"></div>
+                                <!-- Botão Logout -->
+                <button id="btn-logout" onclick="handleLogout()" class="flex flex-col items-center group focus:outline-none">
+                    <div class="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center transition-all group-hover:scale-105 active:scale-95 border border-rose-200 shadow-sm">
+                        <svg class="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                    </div>
+                    <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide mt-1">Sair</span>
+                </button>
+
             </div>
         </header>
+
+        <!-- Indicador de Sincronização -->
+        <div id="sync-indicator" class="flex items-center justify-center space-x-1.5 py-1">
+            <div class="sync-dot w-2 h-2 rounded-full bg-gray-300"></div>
+            <span class="sync-text text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Offline</span>
+        </div>
+
 
         <!-- CONTEÚDO PRINCIPAL (Troca de Telas) -->
         <main class="flex-1 px-5 pb-6 overflow-y-auto">
@@ -433,6 +479,193 @@
 
     <!-- Script de lógica interativa -->
     <script>
+
+        // --- Supabase Config ---
+        const SUPABASE_URL = 'https://oxmstdirsbybxznhbhsw.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bXN0ZGlyc2J5Ynh6bmhiaHN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxODMyMzAsImV4cCI6MjA5Nzc1OTIzMH0.ljfDamIxtf_9HPWPNtcZLu5CQEf1lg7owcnUA7pyiQs';
+        const supaClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        let currentUser = null;
+        let syncDebounceTimer = null;
+
+        // ⚠️ CONFIGURAÇÃO DO ALUNO — Altere o e-mail abaixo para o e-mail do aluno dono deste treino
+        const ALLOWED_EMAIL = 'pbc329729@gmail.com'; // <-- Trocar para o e-mail do aluno
+
+        // --- Sync Status Indicator ---
+        function setSyncStatus(status) {
+            const indicator = document.getElementById('sync-indicator');
+            if (!indicator) return;
+            const dot = indicator.querySelector('.sync-dot');
+            const text = indicator.querySelector('.sync-text');
+            if (status === 'syncing') {
+                dot.className = 'sync-dot w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+                text.textContent = 'Sincronizando...';
+            } else if (status === 'synced') {
+                dot.className = 'sync-dot w-2 h-2 rounded-full bg-emerald-500';
+                text.textContent = 'Sincronizado';
+            } else if (status === 'error') {
+                dot.className = 'sync-dot w-2 h-2 rounded-full bg-rose-500';
+                text.textContent = 'Erro ao sincronizar';
+            } else {
+                dot.className = 'sync-dot w-2 h-2 rounded-full bg-gray-300';
+                text.textContent = 'Offline';
+            }
+        }
+
+        // Auto-login check
+        async function checkSession() {
+            const { data: { session } } = await supaClient.auth.getSession();
+            if (session) {
+                // Verifica se o e-mail da sessão é o dono deste treino
+                if (session.user.email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()) {
+                    await supaClient.auth.signOut();
+                    document.getElementById('login-modal').classList.remove('hidden');
+                    return;
+                }
+                currentUser = session.user;
+                document.getElementById('login-modal').classList.add('hidden');
+                await syncLogbookFromSupabase();
+            } else {
+                document.getElementById('login-modal').classList.remove('hidden');
+            }
+        }
+
+        // Login Handler — apenas login, contas são criadas manualmente pelo treinador
+        document.addEventListener('DOMContentLoaded', () => {
+            const loginForm = document.getElementById('login-form');
+            
+            if (loginForm) {
+                loginForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const email = document.getElementById('login-email').value;
+                    const password = document.getElementById('login-password').value;
+                    const btn = document.getElementById('login-btn');
+                    const err = document.getElementById('login-error');
+                    const info = document.getElementById('login-info');
+                    
+                    if (!email || !password) {
+                        err.textContent = 'Preencha e-mail e senha.';
+                        err.classList.remove('hidden');
+                        return;
+                    }
+                    
+                    // Verifica se o e-mail é o dono deste treino ANTES de tentar login
+                    if (email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()) {
+                        err.textContent = 'Este treino não pertence a este e-mail. Verifique o link com seu treinador.';
+                        err.classList.remove('hidden');
+                        return;
+                    }
+                    
+                    btn.textContent = 'Aguarde...';
+                    btn.disabled = true;
+                    err.classList.add('hidden');
+                    info.classList.add('hidden');
+                    
+                    const { data, error } = await supaClient.auth.signInWithPassword({ email, password });
+                    
+                    if (error) {
+                        err.textContent = 'E-mail ou senha incorretos. Entre em contato com seu treinador.';
+                        err.classList.remove('hidden');
+                        btn.textContent = 'Entrar';
+                        btn.disabled = false;
+                        return;
+                    }
+                    
+                    currentUser = data.user;
+                    document.getElementById('login-modal').classList.add('hidden');
+                    await syncLogbookFromSupabase();
+                    btn.textContent = 'Entrar';
+                    btn.disabled = false;
+                });
+            }
+            checkSession();
+        });
+
+        // Toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-rose-600' : 'bg-emerald-600';
+            toast.className = `fixed top-6 left-1/2 -translate-x-1/2 ${bgColor} text-white text-sm font-bold px-6 py-3 rounded-2xl shadow-2xl z-[200] transition-all duration-500 opacity-0 -translate-y-4`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('opacity-0', '-translate-y-4');
+                toast.classList.add('opacity-100', 'translate-y-0');
+            });
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', '-translate-y-4');
+                setTimeout(() => toast.remove(), 500);
+            }, 3000);
+        }
+
+        // Sincroniza automaticamente quando o usuário volta para a aba do navegador
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && currentUser) {
+                syncLogbookFromSupabase();
+            }
+        });
+
+        // Logout
+        async function handleLogout() {
+            await supaClient.auth.signOut();
+            currentUser = null;
+            setSyncStatus('offline');
+            document.getElementById('login-modal').classList.remove('hidden');
+        }
+
+        async function syncLogbookFromSupabase() {
+            if (!currentUser) return;
+            setSyncStatus('syncing');
+            const { data, error } = await supaClient
+                .from('logbooks')
+                .select('data')
+                .eq('user_id', currentUser.id)
+                .single();
+                
+            if (error && error.code !== 'PGRST116') {
+                console.error('Error fetching logbook:', error);
+                setSyncStatus('error');
+                return;
+            }
+            
+            if (data && data.data) {
+                state.logbookData = data.data;
+                localStorage.setItem(LOGBOOK_STORAGE_KEY, JSON.stringify(state.logbookData));
+                setSyncStatus('synced');
+            } else {
+                // Se não tem dados no Supabase, envia os dados locais
+                await pushLogbookToSupabase();
+            }
+        }
+
+        async function pushLogbookToSupabase() {
+            if (!currentUser) return;
+            setSyncStatus('syncing');
+            const { error } = await supaClient
+                .from('logbooks')
+                .upsert({ 
+                    user_id: currentUser.id, 
+                    data: state.logbookData,
+                    updated_at: new Date().toISOString()
+                });
+                
+            if (error) {
+                console.error('Error pushing logbook:', error);
+                setSyncStatus('error');
+            } else {
+                setSyncStatus('synced');
+            }
+        }
+
+        // Debounced push — evita chamadas excessivas ao Supabase
+        function debouncedPushLogbook() {
+            clearTimeout(syncDebounceTimer);
+            setSyncStatus('syncing');
+            syncDebounceTimer = setTimeout(() => {
+                pushLogbookToSupabase();
+            }, 2000);
+        }
+
         const workoutData = {
           1: {
                     title: "Dia 1",
@@ -479,7 +712,8 @@
                                         note: "Duas últimas séries até a falha",
                                         target: "quads",
                                         warning: "O movimento é jogando o quadril a frente, mantendo tensão no glúteo.",
-                                        videoLink: "https://www.youtube.com/watch?v=oy8OIDqEb5I",
+                                        /* VÍDEO ATUALIZADO CONFORME SOLICITAÇÃO */
+                                        videoLink: "https://www.youtube.com/shorts/EygaKO0sCLk",
                                         conjugatedGroup: null
                               },
                               {
@@ -524,7 +758,8 @@
                                         note: "Duas últimas séries até a falha",
                                         target: "quads",
                                         warning: "Movimento controlado pausando 1s no máximo de contração e 1s no máximo de alongamento.",
-                                        videoLink: "https://www.youtube.com/shorts/erUNxqpFxkc",
+                                        /* VÍDEO ATUALIZADO CONFORME SOLICITAÇÃO */
+                                        videoLink: "https://www.youtube.com/shorts/83e3vyu0_XE",
                                         conjugatedGroup: null
                               }
                     ]
@@ -758,7 +993,7 @@
                                         reps: "8-12 reps",
                                         note: "Duas últimas séries até a falha",
                                         target: "quads",
-                                        warning: "Jogue o quadril pra trás enquanto flexiona os joelhos. Chegue até um pouco abaixo do seu joelho (ou onde sua amplitude permitir)",
+                                        warning: "Jogue o quadril pra trás enquanto flexiona os joelhos. Chegue até um pouco abaixo do seu joelho (or onde sua amplitude permitir)",
                                         videoLink: "https://www.youtube.com/shorts/W39NpFgPftQ",
                                         conjugatedGroup: null
                               },
@@ -798,7 +1033,8 @@
                                         note: "Duas últimas séries até a falha",
                                         target: "pectoral",
                                         warning: "Banco no primeiro nível de altura acima do reto.",
-                                        videoLink: "https://www.youtube.com/watch?v=C7leaZQACnU",
+                                        /* VÍDEO ATUALIZADO CONFORME SOLICITAÇÃO */
+                                        videoLink: "https://www.youtube.com/shorts/0UD1UI5xwPw",
                                         conjugatedGroup: null
                               },
                               {
@@ -831,7 +1067,8 @@
                                         note: "Duas últimas séries até a falha",
                                         target: "deltoids",
                                         warning: "Eleve os braços focando na contração dos ombros e controle a descida.",
-                                        videoLink: "https://www.youtube.com/watch?v=vuXbexIBl_U",
+                                        /* VÍDEO ATUALIZADO CONFORME SOLICITAÇÃO */
+                                        videoLink: "https://www.youtube.com/shorts/Nea2S58aVRQ",
                                         subText: "Ou no banco livre",
                                         conjugatedGroup: null
                               },
@@ -1114,6 +1351,7 @@
         function persistLogbookData() {
             try {
                 localStorage.setItem(LOGBOOK_STORAGE_KEY, JSON.stringify(state.logbookData));
+                if (typeof debouncedPushLogbook === 'function') debouncedPushLogbook(); // Sincroniza online com debounce se existir
             } catch (error) {
                 console.warn('Não foi possível salvar o logbook no navegador.', error);
             }
